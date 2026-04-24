@@ -23,7 +23,7 @@ def test_modules_are_loaded_from_assembly_registry_artifact() -> None:
     module_ids = {item.module_id for item in response.items}
     assert response.total == len(response.items)
     assert "assembly" in module_ids
-    assert "frontend-api" not in module_ids
+    assert "frontend-api" in module_ids
     assert response.statuses["verified"] >= 1
 
 

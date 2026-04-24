@@ -19,9 +19,21 @@ Boundary rules for this phase:
 
 - No command endpoints.
 - No release-freeze behavior.
-- No assembly registry registration.
 - No imports from assembly private implementation modules or sibling module
   implementations.
+
+Assembly integration:
+
+- Standard public entrypoints live in `frontend_api.public`:
+  - `health_probe`
+  - `smoke_hook`
+  - `init_hook`
+  - `version_declaration`
+  - `cli`
+- Assembly registration is tracked in
+  `/Users/fanjie/Desktop/Cowork/project-ult/assembly/MODULE_REGISTRY.md`.
+- Public smoke evidence is tracked in
+  `/Users/fanjie/Desktop/Cowork/project-ult/assembly/reports/smoke/frontend-api-api1-public-smoke-20260425.md`.
 
 ## Run
 

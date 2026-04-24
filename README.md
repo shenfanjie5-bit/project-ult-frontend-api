@@ -1,8 +1,9 @@
 # project-ult-frontend-api
 
-Read-only Backend-for-Frontend skeleton for Project ULT API-1/API-2A.
+Read-only Backend-for-Frontend skeleton for Project ULT API-1 through API-3A.
 
-This module exposes the System Map and read-only Cycle/Formal surface:
+This module exposes the System Map and read-only Cycle/Formal/Entity/Data
+surface:
 
 - `GET /api/project-ult/health`
 - `GET /api/project-ult/modules`
@@ -13,6 +14,10 @@ This module exposes the System Map and read-only Cycle/Formal surface:
 - `GET /api/project-ult/formal/{object_type}`
 - `GET /api/project-ult/formal/{object_type}/{cycle_id}`
 - `GET /api/project-ult/manifests/latest`
+- `GET /api/project-ult/entities/search?q=&limit=`
+- `GET /api/project-ult/entities/{entity_id}`
+- `GET /api/project-ult/data/canonical/{table}?limit=&cursor=`
+- `GET /api/project-ult/data/raw/{source}?limit=&cursor=`
 - `GET /api/world-state/latest`
 - `GET /api/pool/latest`
 - `GET /api/recommendations/latest`
@@ -26,6 +31,13 @@ It reads assembly-owned public artifacts from:
 Cycle/Formal routes prefer `data-platform/artifacts/frontend-api/*.json`
 read-model artifacts and otherwise degrade through data-platform public package
 APIs if they are importable in the runtime.
+
+Entity/Data routes read stable frontend-api artifacts owned by their source
+modules:
+
+- `entity-registry/artifacts/frontend-api/entities.json`
+- `data-platform/artifacts/frontend-api/data/canonical/*.json`
+- `data-platform/artifacts/frontend-api/data/raw/*.json`
 
 Boundary rules for this phase:
 

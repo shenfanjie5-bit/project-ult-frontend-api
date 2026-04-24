@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from frontend_api import __version__
 from frontend_api.errors import register_exception_handlers
+from frontend_api.routes.cycle import router as cycle_router
 from frontend_api.routes.system import router as system_router
 from frontend_api.settings import FrontendApiSettings
 
@@ -16,7 +17,7 @@ def create_app(settings: FrontendApiSettings | None = None) -> FastAPI:
     app = FastAPI(
         title="Project ULT Frontend API",
         version=__version__,
-        description="Read-only API-1 System/Assembly boundary.",
+        description="Read-only Project ULT System, Cycle, and Formal boundary.",
     )
     app.state.settings = app_settings
     if app_settings.cors_allow_origins:
@@ -28,6 +29,7 @@ def create_app(settings: FrontendApiSettings | None = None) -> FastAPI:
         )
     register_exception_handlers(app)
     app.include_router(system_router)
+    app.include_router(cycle_router)
     return app
 
 

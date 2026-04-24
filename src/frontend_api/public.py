@@ -26,11 +26,19 @@ from frontend_api.settings import FrontendApiSettings
 _MODULE_ID = "frontend-api"
 _CONTRACT_VERSION = "v0.1.3"
 _COMPATIBLE_CONTRACT_RANGE = ">=0.1.0,<0.2.0"
-_API1_GET_ROUTES = {
+_READONLY_GET_ROUTES = {
     "/api/project-ult/health",
     "/api/project-ult/modules",
     "/api/project-ult/profiles",
     "/api/project-ult/compat",
+    "/api/project-ult/cycles",
+    "/api/project-ult/cycles/{cycle_id}",
+    "/api/project-ult/formal/{object_type}",
+    "/api/project-ult/formal/{object_type}/{cycle_id}",
+    "/api/project-ult/manifests/latest",
+    "/api/world-state/latest",
+    "/api/pool/latest",
+    "/api/recommendations/latest",
 }
 
 
@@ -91,7 +99,9 @@ class _SmokeHook:
                 for method in getattr(route, "methods", set())
             }
             missing_routes = sorted(
-                route for route in _API1_GET_ROUTES if (route, "GET") not in route_methods
+                route
+                for route in _READONLY_GET_ROUTES
+                if (route, "GET") not in route_methods
             )
             project_ult_post_routes = sorted(
                 path
@@ -103,7 +113,7 @@ class _SmokeHook:
                     start,
                     passed=False,
                     failure_reason=(
-                        "API-1 route contract failed: "
+                        "read-only route contract failed: "
                         f"missing_get_routes={missing_routes}, "
                         f"project_ult_post_routes={project_ult_post_routes}"
                     ),

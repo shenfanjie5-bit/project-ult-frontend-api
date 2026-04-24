@@ -1,13 +1,21 @@
 # project-ult-frontend-api
 
-Read-only Backend-for-Frontend skeleton for Project ULT API-1.
+Read-only Backend-for-Frontend skeleton for Project ULT API-1/API-2A.
 
-This module exposes the System Map surface only:
+This module exposes the System Map and read-only Cycle/Formal surface:
 
 - `GET /api/project-ult/health`
 - `GET /api/project-ult/modules`
 - `GET /api/project-ult/profiles`
 - `GET /api/project-ult/compat`
+- `GET /api/project-ult/cycles`
+- `GET /api/project-ult/cycles/{cycle_id}`
+- `GET /api/project-ult/formal/{object_type}`
+- `GET /api/project-ult/formal/{object_type}/{cycle_id}`
+- `GET /api/project-ult/manifests/latest`
+- `GET /api/world-state/latest`
+- `GET /api/pool/latest`
+- `GET /api/recommendations/latest`
 
 It reads assembly-owned public artifacts from:
 
@@ -15,12 +23,16 @@ It reads assembly-owned public artifacts from:
 - `assembly/profiles/*.yaml`
 - `assembly/compatibility-matrix.yaml`
 
+Cycle/Formal routes prefer `data-platform/artifacts/frontend-api/*.json`
+read-model artifacts and otherwise degrade through data-platform public package
+APIs if they are importable in the runtime.
+
 Boundary rules for this phase:
 
 - No command endpoints.
 - No release-freeze behavior.
 - No imports from assembly private implementation modules or sibling module
-  implementations.
+  private implementation modules.
 
 Assembly integration:
 

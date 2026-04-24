@@ -1,0 +1,34 @@
+"""FastAPI app factory for frontend-api."""
+
+from __future__ import annotations
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from frontend_api import __version__
+from frontend_api.errors import register_exception_handlers
+from frontend_api.routes.system import router as system_router
+from frontend_api.settings import FrontendApiSettings
+
+
+def create_app(settings: FrontendApiSettings | None = None) -> FastAPI:
+    app_settings = settings or FrontendApiSettings.from_env()
+    app = FastAPI(
+        title="Project ULT Frontend API",
+        version=__version__,
+        description="Read-only API-1 System/Assembly boundary.",
+    )
+    app.state.settings = app_settings
+    if app_settings.cors_allow_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=app_settings.cors_allow_origins,
+            allow_methods=["GET", "OPTIONS"],
+            allow_headers=["*"],
+        )
+    register_exception_handlers(app)
+    app.include_router(system_router)
+    return app
+
+
+app = create_app()

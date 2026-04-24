@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from frontend_api.app import create_app
 from frontend_api.settings import FrontendApiSettings
+
+PROJECT_ROOT = Path(
+    os.getenv("PROJECT_ULT_TEST_PROJECT_ROOT", Path(__file__).resolve().parents[2])
+).resolve()
 
 
 def test_cycle_formal_routes_read_artifacts(tmp_path: Path) -> None:
@@ -103,6 +108,67 @@ def test_cycle_formal_routes_read_artifacts(tmp_path: Path) -> None:
     assert legacy_recommendations.json()["recommendations"][0]["entity_id"] == (
         "ENT_STOCK_000001.SZ"
     )
+    assert "payload" not in legacy_recommendations.json()
+
+
+def test_project_artifacts_return_api2b_success_state() -> None:
+    client = _client(PROJECT_ROOT)
+
+    cycles = client.get("/api/project-ult/cycles")
+    manifest = client.get("/api/project-ult/manifests/latest")
+    formal_world_state = client.get("/api/project-ult/formal/world_state_snapshot")
+    formal_pool = client.get("/api/project-ult/formal/official_alpha_pool")
+    formal_recommendations = client.get(
+        "/api/project-ult/formal/recommendation_snapshot"
+    )
+    legacy_world_state = client.get("/api/world-state/latest")
+    legacy_pool = client.get("/api/pool/latest")
+    legacy_recommendations = client.get("/api/recommendations/latest")
+
+    assert cycles.status_code == 200
+    cycles_payload = cycles.json()
+    assert cycles_payload["source_status"] == "available"
+    assert cycles_payload["source"]["kind"] == "cycle_index"
+    assert cycles_payload["source"]["path"].endswith(
+        "data-platform/artifacts/frontend-api/cycles.json"
+    )
+    assert cycles_payload["total"] >= 1
+    assert cycles_payload["items"][0]["cycle_id"] == "CYCLE_20260424"
+
+    assert manifest.status_code == 200
+    manifest_payload = manifest.json()
+    assert manifest_payload["source_status"] == "available"
+    snapshots = manifest_payload["formal_table_snapshots"]
+    assert isinstance(snapshots, dict)
+    assert snapshots.keys() >= {
+        "world_state_snapshot",
+        "official_alpha_pool",
+        "recommendation_snapshot",
+    }
+    assert all(isinstance(snapshot, dict) for snapshot in snapshots.values())
+    assert snapshots["world_state_snapshot"]["snapshot_id"] == "api2b_world_state_001"
+
+    assert formal_world_state.status_code == 200
+    world_state_payload = formal_world_state.json()
+    assert world_state_payload["object_type"] == "world_state_snapshot"
+    assert world_state_payload["source_status"] == "available"
+    assert world_state_payload["source"]["kind"] == "formal_object"
+    assert world_state_payload["payload"]["regime"] == "range_bound"
+
+    assert formal_pool.status_code == 200
+    assert formal_pool.json()["payload"]["core_pool"][0]["stock_id"] == "600519.SH"
+    assert formal_recommendations.status_code == 200
+    assert formal_recommendations.json()["payload"]["recommendations"][0]["rank"] == 1
+
+    assert legacy_world_state.status_code == 200
+    assert legacy_world_state.json()["regime"] == "range_bound"
+    assert "payload" not in legacy_world_state.json()
+    assert "source_status" not in legacy_world_state.json()
+    assert legacy_pool.status_code == 200
+    assert legacy_pool.json()["core_pool"][0]["stock_id"] == "600519.SH"
+    assert "object_type" not in legacy_pool.json()
+    assert legacy_recommendations.status_code == 200
+    assert legacy_recommendations.json()["recommendations"][0]["rank"] == 1
     assert "payload" not in legacy_recommendations.json()
 
 

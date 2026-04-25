@@ -243,6 +243,52 @@ def test_operations_invalid_json_uses_error_envelope(tmp_path: Path) -> None:
     assert response.json()["error"]["request_id"] == "req_bad_runs_json"
 
 
+def test_operations_openapi_contract_exposes_api4a_routes(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+
+    openapi = client.get("/openapi.json").json()
+    paths = openapi["paths"]
+
+    assert paths.keys() >= {
+        "/api/project-ult/reasoner/providers",
+        "/api/project-ult/reasoner/results",
+        "/api/project-ult/audit/{cycle_id}",
+        "/api/project-ult/replay/{cycle_id}",
+        "/api/project-ult/backtests",
+        "/api/project-ult/backtests/{backtest_id}",
+        "/api/project-ult/orchestrator/runs",
+        "/api/project-ult/orchestrator/runs/{run_id}",
+    }
+    assert _query_schema(paths, "/api/project-ult/reasoner/results", "limit")[
+        "maximum"
+    ] == 500
+    assert _query_schema(paths, "/api/project-ult/backtests", "limit")[
+        "maximum"
+    ] == 500
+    assert _query_schema(paths, "/api/project-ult/orchestrator/runs", "limit")[
+        "maximum"
+    ] == 500
+    assert _query_schema(paths, "/api/project-ult/reasoner/results", "cursor")[
+        "anyOf"
+    ][1] == {"type": "null"}
+    assert _query_schema(paths, "/api/project-ult/orchestrator/runs", "status")[
+        "anyOf"
+    ][1] == {"type": "null"}
+
+
+def test_operations_limit_bounds_use_fastapi_validation(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+
+    responses = [
+        client.get("/api/project-ult/reasoner/results?limit=501"),
+        client.get("/api/project-ult/backtests?limit=501"),
+        client.get("/api/project-ult/orchestrator/runs?limit=501"),
+    ]
+
+    for response in responses:
+        assert response.status_code == 422
+
+
 def test_operations_routes_reject_invalid_query(tmp_path: Path) -> None:
     client = _client(tmp_path)
 
@@ -250,6 +296,9 @@ def test_operations_routes_reject_invalid_query(tmp_path: Path) -> None:
         "/api/project-ult/reasoner/results?cursor=not-an-offset"
     )
     cycle_response = client.get("/api/project-ult/audit/../secret")
+    encoded_cycle_response = client.get("/api/project-ult/audit/bad%20cycle")
+    backtest_response = client.get("/api/project-ult/backtests/bad%20backtest")
+    run_response = client.get("/api/project-ult/orchestrator/runs/bad%20run")
     status_response = client.get(
         "/api/project-ult/orchestrator/runs?status=../secret"
     )
@@ -257,8 +306,180 @@ def test_operations_routes_reject_invalid_query(tmp_path: Path) -> None:
     assert cursor_response.status_code == 400
     assert cursor_response.json()["error"]["code"] == "PROJECT_ULT_CURSOR_INVALID"
     assert cycle_response.status_code == 404
+    assert encoded_cycle_response.status_code == 400
+    assert encoded_cycle_response.json()["error"]["code"] == (
+        "PROJECT_ULT_IDENTIFIER_INVALID"
+    )
+    assert backtest_response.status_code == 400
+    assert backtest_response.json()["error"]["code"] == (
+        "PROJECT_ULT_IDENTIFIER_INVALID"
+    )
+    assert run_response.status_code == 400
+    assert run_response.json()["error"]["code"] == "PROJECT_ULT_IDENTIFIER_INVALID"
     assert status_response.status_code == 400
     assert status_response.json()["error"]["code"] == "PROJECT_ULT_STATUS_INVALID"
+
+
+def test_operations_all_list_schema_drift_uses_error_envelope(
+    tmp_path: Path,
+) -> None:
+    cases = [
+        (
+            _reasoner_root(tmp_path) / "providers.json",
+            "/api/project-ult/reasoner/providers",
+            "PROJECT_ULT_REASONER_ARTIFACT_SCHEMA_INVALID",
+        ),
+        (
+            _reasoner_root(tmp_path) / "results.json",
+            "/api/project-ult/reasoner/results",
+            "PROJECT_ULT_REASONER_ARTIFACT_SCHEMA_INVALID",
+        ),
+        (
+            _audit_root(tmp_path) / "backtests.json",
+            "/api/project-ult/backtests",
+            "PROJECT_ULT_BACKTEST_ARTIFACT_SCHEMA_INVALID",
+        ),
+        (
+            _orchestrator_root(tmp_path) / "runs.json",
+            "/api/project-ult/orchestrator/runs",
+            "PROJECT_ULT_ORCHESTRATOR_ARTIFACT_SCHEMA_INVALID",
+        ),
+    ]
+    for path, route, code in cases:
+        _write_json(path, {"items": "bad"})
+        client = _client(tmp_path)
+        response = client.get(route, headers={"x-request-id": f"req_{code}"})
+        assert response.status_code == 500
+        assert response.json()["error"]["code"] == code
+        assert response.json()["error"]["request_id"] == f"req_{code}"
+        path.unlink()
+
+
+def test_operations_all_list_invalid_json_uses_error_envelope(
+    tmp_path: Path,
+) -> None:
+    cases = [
+        (
+            _reasoner_root(tmp_path) / "providers.json",
+            "/api/project-ult/reasoner/providers",
+            "PROJECT_ULT_REASONER_ARTIFACT_SCHEMA_INVALID",
+        ),
+        (
+            _reasoner_root(tmp_path) / "results.json",
+            "/api/project-ult/reasoner/results",
+            "PROJECT_ULT_REASONER_ARTIFACT_SCHEMA_INVALID",
+        ),
+        (
+            _audit_root(tmp_path) / "backtests.json",
+            "/api/project-ult/backtests",
+            "PROJECT_ULT_BACKTEST_ARTIFACT_SCHEMA_INVALID",
+        ),
+        (
+            _orchestrator_root(tmp_path) / "runs.json",
+            "/api/project-ult/orchestrator/runs",
+            "PROJECT_ULT_ORCHESTRATOR_ARTIFACT_SCHEMA_INVALID",
+        ),
+    ]
+    for path, route, code in cases:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{", encoding="utf-8")
+        client = _client(tmp_path)
+        response = client.get(route, headers={"x-request-id": f"req_{code}"})
+        assert response.status_code == 500
+        assert response.json()["error"]["code"] == code
+        assert response.json()["error"]["request_id"] == f"req_{code}"
+        path.unlink()
+
+
+def test_operations_all_detail_schema_drift_uses_error_envelope(
+    tmp_path: Path,
+) -> None:
+    cases = [
+        (
+            _audit_root(tmp_path) / "audit" / "CYCLE_20260424.json",
+            "/api/project-ult/audit/CYCLE_20260424",
+            "PROJECT_ULT_AUDIT_ARTIFACT_SCHEMA_INVALID",
+        ),
+        (
+            _audit_root(tmp_path) / "replay" / "CYCLE_20260424.json",
+            "/api/project-ult/replay/CYCLE_20260424",
+            "PROJECT_ULT_REPLAY_ARTIFACT_SCHEMA_INVALID",
+        ),
+        (
+            _audit_root(tmp_path) / "backtests" / "BT_API4A_001.json",
+            "/api/project-ult/backtests/BT_API4A_001",
+            "PROJECT_ULT_BACKTEST_ARTIFACT_SCHEMA_INVALID",
+        ),
+        (
+            _orchestrator_root(tmp_path) / "runs" / "RUN_API4A_001.json",
+            "/api/project-ult/orchestrator/runs/RUN_API4A_001",
+            "PROJECT_ULT_ORCHESTRATOR_ARTIFACT_SCHEMA_INVALID",
+        ),
+    ]
+    for path, route, code in cases:
+        _write_json(path, {"metadata": "bad"})
+        client = _client(tmp_path)
+        response = client.get(route, headers={"x-request-id": f"req_{code}"})
+        assert response.status_code == 500
+        assert response.json()["error"]["code"] == code
+        assert response.json()["error"]["request_id"] == f"req_{code}"
+        path.unlink()
+
+
+def test_operations_all_detail_invalid_json_uses_error_envelope(
+    tmp_path: Path,
+) -> None:
+    cases = [
+        (
+            _audit_root(tmp_path) / "audit" / "CYCLE_20260424.json",
+            "/api/project-ult/audit/CYCLE_20260424",
+            "PROJECT_ULT_AUDIT_ARTIFACT_SCHEMA_INVALID",
+        ),
+        (
+            _audit_root(tmp_path) / "replay" / "CYCLE_20260424.json",
+            "/api/project-ult/replay/CYCLE_20260424",
+            "PROJECT_ULT_REPLAY_ARTIFACT_SCHEMA_INVALID",
+        ),
+        (
+            _audit_root(tmp_path) / "backtests" / "BT_API4A_001.json",
+            "/api/project-ult/backtests/BT_API4A_001",
+            "PROJECT_ULT_BACKTEST_ARTIFACT_SCHEMA_INVALID",
+        ),
+        (
+            _orchestrator_root(tmp_path) / "runs" / "RUN_API4A_001.json",
+            "/api/project-ult/orchestrator/runs/RUN_API4A_001",
+            "PROJECT_ULT_ORCHESTRATOR_ARTIFACT_SCHEMA_INVALID",
+        ),
+    ]
+    for path, route, code in cases:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{", encoding="utf-8")
+        client = _client(tmp_path)
+        response = client.get(route, headers={"x-request-id": f"req_{code}"})
+        assert response.status_code == 500
+        assert response.json()["error"]["code"] == code
+        assert response.json()["error"]["request_id"] == f"req_{code}"
+        path.unlink()
+
+
+def test_operations_missing_metadata_defaults_to_empty_object(tmp_path: Path) -> None:
+    _write_json(
+        _reasoner_root(tmp_path) / "results.json",
+        {"items": [{"result_id": "result_without_index_metadata"}]},
+    )
+    _write_json(
+        _audit_root(tmp_path) / "audit" / "CYCLE_20260424.json",
+        {"cycle_id": "CYCLE_20260424", "audit_records": []},
+    )
+    client = _client(tmp_path)
+
+    results = client.get("/api/project-ult/reasoner/results")
+    audit = client.get("/api/project-ult/audit/CYCLE_20260424")
+
+    assert results.status_code == 200
+    assert results.json()["source_status"] == "available"
+    assert audit.status_code == 200
+    assert audit.json()["metadata"] == {}
 
 
 def test_api4a_does_not_register_project_ult_post_routes(tmp_path: Path) -> None:
@@ -422,3 +643,15 @@ def _orchestrator_root(project_root: Path) -> Path:
 def _write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _query_schema(
+    openapi_paths: dict[str, object],
+    path: str,
+    name: str,
+) -> dict[str, object]:
+    parameters = openapi_paths[path]["get"]["parameters"]  # type: ignore[index]
+    for parameter in parameters:
+        if parameter["name"] == name:
+            return parameter["schema"]
+    raise AssertionError(f"missing query parameter {name} on {path}")

@@ -1,8 +1,8 @@
 # project-ult-frontend-api
 
-Read-only Backend-for-Frontend skeleton for Project ULT API-1 through API-3A.
+Read-only Backend-for-Frontend skeleton for Project ULT API-1 through API-3C.
 
-This module exposes the System Map and read-only Cycle/Formal/Entity/Data
+This module exposes the System Map and read-only Cycle/Formal/Entity/Data/Graph
 surface:
 
 - `GET /api/project-ult/health`
@@ -18,6 +18,9 @@ surface:
 - `GET /api/project-ult/entities/{entity_id}`
 - `GET /api/project-ult/data/canonical/{table}?limit=&cursor=`
 - `GET /api/project-ult/data/raw/{source}?limit=&cursor=`
+- `GET /api/project-ult/graph/subgraph?seed=&depth=&limit=`
+- `GET /api/project-ult/graph/paths?seed=&depth=&limit=&channel=`
+- `GET /api/project-ult/graph/impact?entity_id=&cycle_id=`
 - `GET /api/world-state/latest`
 - `GET /api/pool/latest`
 - `GET /api/recommendations/latest`
@@ -38,6 +41,12 @@ modules:
 - `entity-registry/artifacts/frontend-api/entities.json`
 - `data-platform/artifacts/frontend-api/data/canonical/*.json`
 - `data-platform/artifacts/frontend-api/data/raw/*.json`
+
+Graph routes read stable frontend-api artifacts owned by graph-engine:
+
+- `graph-engine/artifacts/frontend-api/subgraph.json`
+- `graph-engine/artifacts/frontend-api/paths.json`
+- `graph-engine/artifacts/frontend-api/impact.json`
 
 Boundary rules for this phase:
 

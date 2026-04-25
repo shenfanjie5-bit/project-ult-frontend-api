@@ -10,6 +10,7 @@ from frontend_api.errors import register_exception_handlers
 from frontend_api.routes.cycle import router as cycle_router
 from frontend_api.routes.entity_data import router as entity_data_router
 from frontend_api.routes.graph import router as graph_router
+from frontend_api.routes.operations import router as operations_router
 from frontend_api.routes.system import router as system_router
 from frontend_api.settings import FrontendApiSettings
 
@@ -20,8 +21,8 @@ def create_app(settings: FrontendApiSettings | None = None) -> FastAPI:
         title="Project ULT Frontend API",
         version=__version__,
         description=(
-            "Read-only Project ULT System, Cycle, Formal, Entity, Data, and Graph "
-            "boundary."
+            "Read-only Project ULT System, Cycle, Formal, Entity, Data, Graph, "
+            "Reasoner, Audit, and Orchestrator boundary."
         ),
     )
     app.state.settings = app_settings
@@ -37,6 +38,7 @@ def create_app(settings: FrontendApiSettings | None = None) -> FastAPI:
     app.include_router(cycle_router)
     app.include_router(entity_data_router)
     app.include_router(graph_router)
+    app.include_router(operations_router)
     return app
 
 

@@ -1,9 +1,10 @@
 # project-ult-frontend-api
 
-Read-only Backend-for-Frontend skeleton for Project ULT API-1 through API-3C.
+Read-only Backend-for-Frontend for the Project ULT API-1 through API-5C
+release surface.
 
-This module exposes the System Map and read-only Cycle/Formal/Entity/Data/Graph
-surface:
+This module exposes the System, Cycle/Formal, Entity/Data, Graph, and Evidence
+read-only surface:
 
 - `GET /api/project-ult/health`
 - `GET /api/project-ult/modules`
@@ -21,6 +22,14 @@ surface:
 - `GET /api/project-ult/graph/subgraph?seed=&depth=&limit=`
 - `GET /api/project-ult/graph/paths?seed=&depth=&limit=&channel=`
 - `GET /api/project-ult/graph/impact?entity_id=&cycle_id=`
+- `GET /api/project-ult/reasoner/providers`
+- `GET /api/project-ult/reasoner/results?limit=&cursor=&cycle_id=`
+- `GET /api/project-ult/audit/{cycle_id}`
+- `GET /api/project-ult/replay/{cycle_id}`
+- `GET /api/project-ult/backtests?limit=&cursor=`
+- `GET /api/project-ult/backtests/{backtest_id}`
+- `GET /api/project-ult/orchestrator/runs?limit=&cursor=&status=`
+- `GET /api/project-ult/orchestrator/runs/{run_id}`
 - `GET /api/world-state/latest`
 - `GET /api/pool/latest`
 - `GET /api/recommendations/latest`
@@ -48,10 +57,23 @@ Graph routes read stable frontend-api artifacts owned by graph-engine:
 - `graph-engine/artifacts/frontend-api/paths.json`
 - `graph-engine/artifacts/frontend-api/impact.json`
 
+Evidence routes read stable frontend-api artifacts owned by reasoner-runtime,
+audit-eval, and orchestrator:
+
+- `reasoner-runtime/artifacts/frontend-api/providers.json`
+- `reasoner-runtime/artifacts/frontend-api/results.json`
+- `audit-eval/artifacts/frontend-api/audit/*.json`
+- `audit-eval/artifacts/frontend-api/replay/*.json`
+- `audit-eval/artifacts/frontend-api/backtests.json`
+- `audit-eval/artifacts/frontend-api/backtests/*.json`
+- `orchestrator/artifacts/frontend-api/runs.json`
+- `orchestrator/artifacts/frontend-api/runs/*.json`
+
 Boundary rules for this phase:
 
 - No command endpoints.
 - No release-freeze behavior.
+- No sidecar auto-start or managed backend lifecycle.
 - No imports from assembly private implementation modules or sibling module
   private implementation modules.
 

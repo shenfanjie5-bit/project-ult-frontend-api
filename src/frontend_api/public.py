@@ -55,6 +55,8 @@ _READONLY_GET_ROUTES = {
     "/api/pool/latest",
     "/api/recommendations/latest",
 }
+_PROJECT_ULT_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_SMOKE_COMPATIBLE_STATUSES = {"draft", "verified"}
 
 
 class _HealthProbe:
@@ -118,19 +120,20 @@ class _SmokeHook:
                 for route in _READONLY_GET_ROUTES
                 if (route, "GET") not in route_methods
             )
-            project_ult_post_routes = sorted(
-                path
+            project_ult_write_routes = sorted(
+                f"{method} {path}"
                 for path, method in route_methods
-                if method == "POST" and path.startswith("/api/project-ult")
+                if method in _PROJECT_ULT_WRITE_METHODS
+                and path.startswith("/api/project-ult")
             )
-            if missing_routes or project_ult_post_routes:
+            if missing_routes or project_ult_write_routes:
                 return _smoke_result(
                     start,
                     passed=False,
                     failure_reason=(
                         "read-only route contract failed: "
                         f"missing_get_routes={missing_routes}, "
-                        f"project_ult_post_routes={project_ult_post_routes}"
+                        f"project_ult_write_routes={project_ult_write_routes}"
                     ),
                 )
 
@@ -139,12 +142,19 @@ class _SmokeHook:
                 active_profile=profile_id,
                 mode=settings.mode,
             )
-            health = adapter.health()
-            if health.status != "healthy":
+            missing_artifacts = [
+                artifact.kind
+                for artifact in adapter._artifact_statuses()
+                if not artifact.exists
+            ]
+            if missing_artifacts:
                 return _smoke_result(
                     start,
                     passed=False,
-                    failure_reason=f"health returned {health.status}: {health.message}",
+                    failure_reason=(
+                        "assembly artifacts are not readable: "
+                        f"missing_artifacts={missing_artifacts}"
+                    ),
                 )
             modules = adapter.list_modules()
             profiles = adapter.list_profiles()
@@ -154,6 +164,30 @@ class _SmokeHook:
                     start,
                     passed=False,
                     failure_reason="assembly artifact readers returned empty data",
+                )
+            active_profile_found = any(
+                profile.profile_id == profile_id for profile in profiles.items
+            )
+            if not active_profile_found:
+                return _smoke_result(
+                    start,
+                    passed=False,
+                    failure_reason="active profile manifest not found",
+                )
+            compatible_default_rows = [
+                item
+                for item in compatibility.items
+                if item.profile_id == profile_id
+                and not item.extra_bundles
+                and item.status in _SMOKE_COMPATIBLE_STATUSES
+            ]
+            if not compatible_default_rows:
+                return _smoke_result(
+                    start,
+                    passed=False,
+                    failure_reason=(
+                        "active profile has no draft or verified default compat row"
+                    ),
                 )
 
             return _smoke_result(start, passed=True, failure_reason=None)

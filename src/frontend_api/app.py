@@ -8,7 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from frontend_api import __version__
 from frontend_api.errors import register_exception_handlers
 from frontend_api.routes.cycle import router as cycle_router
-from frontend_api.routes.entity_data import router as entity_data_router
+from frontend_api.routes.entity_data import (
+    debug_router as entity_data_debug_router,
+    router as entity_data_router,
+)
 from frontend_api.routes.graph import router as graph_router
 from frontend_api.routes.operations import router as operations_router
 from frontend_api.routes.system import router as system_router
@@ -37,6 +40,8 @@ def create_app(settings: FrontendApiSettings | None = None) -> FastAPI:
     app.include_router(system_router)
     app.include_router(cycle_router)
     app.include_router(entity_data_router)
+    if app_settings.enable_raw_debug_routes:
+        app.include_router(entity_data_debug_router)
     app.include_router(graph_router)
     app.include_router(operations_router)
     return app

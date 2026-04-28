@@ -55,9 +55,15 @@ _SOURCE_SCHEMA_ERROR_NAMES = frozenset({"InvalidFormalSnapshotManifest"})
 class DataPlatformReadAdapter:
     """Read cycle, formal object, and manifest data from stable public sources."""
 
-    def __init__(self, *, project_root: Path) -> None:
+    def __init__(
+        self,
+        *,
+        project_root: Path,
+        allow_public_api_fallback: bool = False,
+    ) -> None:
         self.project_root = Path(project_root).expanduser().resolve()
         self.artifact_root = self.project_root.joinpath(*_ARTIFACT_ROOT)
+        self.allow_public_api_fallback = allow_public_api_fallback
 
     def list_cycles(self) -> CycleListResponse:
         index_path = self.artifact_root / "cycles.json"
@@ -567,6 +573,8 @@ class DataPlatformReadAdapter:
         module_name: str,
         attr_name: str,
     ) -> tuple[Callable[..., Any] | None, str | None]:
+        if not self.allow_public_api_fallback:
+            return None, "data-platform public API fallback disabled"
         try:
             module = importlib.import_module(module_name)
         except Exception as exc:  # pragma: no cover - runtime optional dependency

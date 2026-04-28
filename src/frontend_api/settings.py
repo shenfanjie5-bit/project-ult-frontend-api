@@ -37,6 +37,8 @@ class FrontendApiSettings(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8701
     cors_allow_origins: list[str] = Field(default_factory=_default_cors_origins)
+    enable_raw_debug_routes: bool = False
+    allow_data_platform_public_api_fallback: bool = False
 
     @classmethod
     def from_env(cls) -> "FrontendApiSettings":
@@ -53,4 +55,16 @@ class FrontendApiSettings(BaseModel):
                 os.getenv("PROJECT_ULT_FRONTEND_API_CORS_ORIGINS"),
                 _default_cors_origins(),
             ),
+            enable_raw_debug_routes=_parse_bool_env(
+                os.getenv("PROJECT_ULT_FRONTEND_API_ENABLE_RAW_DEBUG_ROUTES"),
+            ),
+            allow_data_platform_public_api_fallback=_parse_bool_env(
+                os.getenv("PROJECT_ULT_FRONTEND_API_ALLOW_PUBLIC_API_FALLBACK"),
+            ),
         )
+
+
+def _parse_bool_env(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}

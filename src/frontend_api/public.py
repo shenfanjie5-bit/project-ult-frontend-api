@@ -39,7 +39,6 @@ _READONLY_GET_ROUTES = {
     "/api/project-ult/entities/search",
     "/api/project-ult/entities/{entity_id}",
     "/api/project-ult/data/canonical/{table}",
-    "/api/project-ult/data/raw/{source}",
     "/api/project-ult/graph/subgraph",
     "/api/project-ult/graph/paths",
     "/api/project-ult/graph/impact",

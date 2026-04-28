@@ -13,6 +13,7 @@ from frontend_api.schemas.entity_data import (
 from frontend_api.settings import FrontendApiSettings
 
 router = APIRouter(prefix="/api/project-ult", tags=["entity-data"])
+debug_router = APIRouter(prefix="/api/project-ult", tags=["entity-data-debug"])
 
 
 def _adapter(request: Request) -> EntityDataReadAdapter:
@@ -49,7 +50,7 @@ def get_canonical_rows(
     )
 
 
-@router.get("/data/raw/{source}", response_model=DataRowsResponse)
+@debug_router.get("/debug/data/raw/{source}", response_model=DataRowsResponse)
 def get_raw_rows(
     request: Request,
     source: str,

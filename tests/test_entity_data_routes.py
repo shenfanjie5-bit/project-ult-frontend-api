@@ -29,19 +29,25 @@ def test_entity_data_routes_read_artifacts(tmp_path: Path) -> None:
     _write_data_artifact(
         tmp_path,
         namespace="raw",
-        name="tushare_stock_basic",
-        columns=["source", "ts_code", "name"],
+        name="provider_stock_basic",
+        columns=["provider", "ts_code", "name"],
         items=[
-            {"source": "tushare", "ts_code": "600519.SH", "name": "Kweichow Moutai"},
-            {"source": "tushare", "ts_code": "300750.SZ", "name": "CATL"},
+            {
+                "provider": "test-provider",
+                "ts_code": "600519.SH",
+                "name": "Kweichow Moutai",
+            },
+            {"provider": "test-provider", "ts_code": "300750.SZ", "name": "CATL"},
         ],
     )
-    client = _client(tmp_path)
+    client = _client(tmp_path, enable_raw_debug_routes=True)
 
     search = client.get("/api/project-ult/entities/search?q=moutai&limit=1")
     profile = client.get("/api/project-ult/entities/ENT_STOCK_600519.SH")
     canonical = client.get("/api/project-ult/data/canonical/stock_basic?limit=1")
-    raw = client.get("/api/project-ult/data/raw/tushare_stock_basic?limit=1&cursor=1")
+    raw = client.get(
+        "/api/project-ult/debug/data/raw/provider_stock_basic?limit=1&cursor=1"
+    )
 
     assert search.status_code == 200
     search_payload = search.json()
@@ -71,7 +77,7 @@ def test_entity_data_routes_read_artifacts(tmp_path: Path) -> None:
     assert raw.status_code == 200
     raw_payload = raw.json()
     assert raw_payload["source_status"] == "available"
-    assert raw_payload["source_name"] == "tushare_stock_basic"
+    assert raw_payload["source_name"] == "provider_stock_basic"
     assert raw_payload["total"] == 2
     assert raw_payload["next_cursor"] is None
     assert raw_payload["items"][0]["ts_code"] == "300750.SZ"
@@ -93,12 +99,12 @@ def test_entity_search_route_uses_cursor_for_next_page(tmp_path: Path) -> None:
 
 
 def test_project_artifacts_return_api3a_success_state() -> None:
-    client = _client(PROJECT_ROOT)
+    client = _client(PROJECT_ROOT, enable_raw_debug_routes=True)
 
     search = client.get("/api/project-ult/entities/search?q=600519&limit=5")
     profile = client.get("/api/project-ult/entities/ENT_STOCK_600519.SH")
     canonical = client.get("/api/project-ult/data/canonical/stock_basic?limit=1")
-    raw = client.get("/api/project-ult/data/raw/tushare_stock_basic?limit=1")
+    raw = client.get("/api/project-ult/debug/data/raw/tushare_stock_basic?limit=1")
 
     assert search.status_code == 200
     search_payload = search.json()
@@ -143,7 +149,7 @@ def test_project_artifacts_return_api3a_success_state() -> None:
 def test_entity_data_routes_return_unavailable_without_sources(
     tmp_path: Path,
 ) -> None:
-    client = _client(tmp_path)
+    client = _client(tmp_path, enable_raw_debug_routes=True)
 
     search = client.get("/api/project-ult/entities/search?q=missing")
     profile = client.get(
@@ -151,7 +157,7 @@ def test_entity_data_routes_return_unavailable_without_sources(
         headers={"x-request-id": "req_entity_source_missing"},
     )
     canonical = client.get("/api/project-ult/data/canonical/stock_basic")
-    raw = client.get("/api/project-ult/data/raw/tushare_stock_basic")
+    raw = client.get("/api/project-ult/debug/data/raw/provider_stock_basic")
 
     assert search.status_code == 200
     assert search.json()["source_status"] == "unavailable"
@@ -166,6 +172,14 @@ def test_entity_data_routes_return_unavailable_without_sources(
     assert raw.status_code == 200
     assert raw.json()["source_status"] == "unavailable"
     assert raw.json()["items"] == []
+
+
+def test_raw_debug_route_is_not_registered_by_default(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+
+    response = client.get("/api/project-ult/debug/data/raw/provider_stock_basic")
+
+    assert response.status_code == 404
 
 
 def test_entity_not_found_is_distinct_from_source_unavailable(
@@ -219,8 +233,8 @@ def test_entity_data_routes_reject_unsafe_identifiers(tmp_path: Path) -> None:
 
     entity_response = client.get("/api/project-ult/entities/../secret")
     data_response = client.get("/api/project-ult/data/canonical/../secret")
-    cursor_response = client.get(
-        "/api/project-ult/data/raw/tushare_stock_basic?cursor=not-an-offset"
+    cursor_response = _client(tmp_path, enable_raw_debug_routes=True).get(
+        "/api/project-ult/debug/data/raw/provider_stock_basic?cursor=not-an-offset"
     )
 
     assert entity_response.status_code == 404
@@ -242,12 +256,13 @@ def test_api3a_does_not_register_project_ult_post_routes(tmp_path: Path) -> None
     assert project_ult_post_routes == []
 
 
-def _client(project_root: Path) -> TestClient:
+def _client(project_root: Path, *, enable_raw_debug_routes: bool = False) -> TestClient:
     app = create_app(
         FrontendApiSettings(
             project_root=project_root,
             profile="lite-local",
             mode="lite-local",
+            enable_raw_debug_routes=enable_raw_debug_routes,
         )
     )
     return TestClient(app)

@@ -22,7 +22,10 @@ compat_router = APIRouter(prefix="/api", tags=["frontend-compat"])
 
 def _adapter(request: Request) -> DataPlatformReadAdapter:
     settings: FrontendApiSettings = request.app.state.settings
-    return DataPlatformReadAdapter(project_root=settings.project_root)
+    return DataPlatformReadAdapter(
+        project_root=settings.project_root,
+        allow_public_api_fallback=settings.allow_data_platform_public_api_fallback,
+    )
 
 
 @project_router.get("/cycles", response_model=CycleListResponse)

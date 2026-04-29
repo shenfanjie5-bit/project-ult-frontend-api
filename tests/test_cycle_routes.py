@@ -111,6 +111,81 @@ def test_cycle_formal_routes_read_artifacts(tmp_path: Path) -> None:
     assert "payload" not in legacy_recommendations.json()
 
 
+def test_formal_routes_strip_raw_source_provider_fields(tmp_path: Path) -> None:
+    root = _artifact_root(tmp_path)
+    raw_formal_object = {
+        "object_type": "world_state_snapshot",
+        "cycle_id": "CYCLE_20260424",
+        "provider": "raw-provider",
+        "provider_ref": "provider-ref",
+        "source_run_id": "RUN_RAW_TOP",
+        "payload": {
+            "regime": "risk_on",
+            "source_run_id": "RUN_RAW_001",
+            "source_vendor": "tushare",
+            "source_provider": "tushare",
+            "source_interface_id": "stock_basic",
+            "raw_loaded_at": "2026-04-24T05:01:00Z",
+            "submitted_at": "2026-04-24T05:00:00Z",
+            "ingest_seq": 42,
+            "provider": "raw-provider",
+            "actual_provider": "tushare",
+            "ts_code": "600519.SH",
+            "index_code": "000300.SH",
+            "entities": [
+                {
+                    "entity_id": "ENT_STOCK_600519.SH",
+                    "provider": "raw-provider",
+                    "provider_ref": "nested-provider-ref",
+                    "source_run_id": "RUN_RAW_002",
+                    "ts_code": "600519.SH",
+                }
+            ],
+            "nested": {
+                "value": 7,
+                "data_source": "raw",
+                "raw_loaded_at": "2026-04-24T05:02:00Z",
+                "index_code": "000300.SH",
+            },
+        },
+    }
+    _write_json(
+        root / "formal" / "world_state_snapshot" / "latest.json",
+        raw_formal_object,
+    )
+    _write_json(
+        root / "formal" / "world_state_snapshot" / "CYCLE_20260424.json",
+        raw_formal_object,
+    )
+    client = _client(tmp_path)
+
+    formal_latest = client.get("/api/project-ult/formal/world_state_snapshot")
+    formal_cycle = client.get(
+        "/api/project-ult/formal/world_state_snapshot/CYCLE_20260424"
+    )
+    legacy = client.get("/api/world-state/latest")
+
+    assert formal_latest.status_code == 200
+    assert formal_cycle.status_code == 200
+    for response in (formal_latest, formal_cycle):
+        formal_payload = response.json()
+        _assert_no_forbidden_formal_payload_keys(formal_payload["payload"])
+        _assert_no_forbidden_formal_payload_keys(formal_payload["metadata"])
+        assert formal_payload["payload"] == {
+            "regime": "risk_on",
+            "entities": [{"entity_id": "ENT_STOCK_600519.SH"}],
+            "nested": {"value": 7},
+        }
+
+    assert legacy.status_code == 200
+    legacy_payload = legacy.json()
+    assert legacy_payload == {
+        "regime": "risk_on",
+        "entities": [{"entity_id": "ENT_STOCK_600519.SH"}],
+        "nested": {"value": 7},
+    }
+
+
 def test_project_artifacts_return_api2b_success_state() -> None:
     client = _client(PROJECT_ROOT)
 
@@ -248,3 +323,42 @@ def _artifact_root(project_root: Path) -> Path:
 def _write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _assert_no_forbidden_formal_payload_keys(payload: object) -> None:
+    forbidden_keys = {
+        "source",
+        "source_name",
+        "source_run_id",
+        "source_status",
+        "source_provider",
+        "source_interface_id",
+        "raw_loaded_at",
+        "submitted_at",
+        "ingest_seq",
+        "provider",
+        "provider_id",
+        "provider_name",
+        "ts_code",
+        "index_code",
+    }
+    if isinstance(payload, dict):
+        assert forbidden_keys.isdisjoint(payload)
+        assert not [
+            key for key in payload if _is_forbidden_formal_payload_key_pattern(key)
+        ]
+        for value in payload.values():
+            _assert_no_forbidden_formal_payload_keys(value)
+    elif isinstance(payload, list):
+        for item in payload:
+            _assert_no_forbidden_formal_payload_keys(item)
+
+
+def _is_forbidden_formal_payload_key_pattern(key: object) -> bool:
+    normalized = str(key).strip().lower()
+    return (
+        normalized.startswith("source")
+        or normalized.startswith("provider")
+        or "_source" in normalized
+        or "_provider" in normalized
+    )

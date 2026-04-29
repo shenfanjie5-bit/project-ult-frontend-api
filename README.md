@@ -18,7 +18,6 @@ read-only surface:
 - `GET /api/project-ult/entities/search?q=&limit=`
 - `GET /api/project-ult/entities/{entity_id}`
 - `GET /api/project-ult/data/canonical/{table}?limit=&cursor=`
-- `GET /api/project-ult/data/raw/{source}?limit=&cursor=`
 - `GET /api/project-ult/graph/subgraph?seed=&depth=&limit=`
 - `GET /api/project-ult/graph/paths?seed=&depth=&limit=&channel=`
 - `GET /api/project-ult/graph/impact?entity_id=&cycle_id=`
@@ -49,7 +48,11 @@ modules:
 
 - `entity-registry/artifacts/frontend-api/entities.json`
 - `data-platform/artifacts/frontend-api/data/canonical/*.json`
-- `data-platform/artifacts/frontend-api/data/raw/*.json`
+
+Raw data artifacts are not part of the default production read-only surface.
+They are only exposed through the optional debug route
+`GET /api/project-ult/debug/data/raw/{source}` when
+`PROJECT_ULT_FRONTEND_API_ENABLE_RAW_DEBUG_ROUTES=1` is set.
 
 Graph routes read stable frontend-api artifacts owned by graph-engine:
 

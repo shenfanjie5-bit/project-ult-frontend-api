@@ -20,6 +20,10 @@ from frontend_api.settings import FrontendApiSettings
 
 def create_app(settings: FrontendApiSettings | None = None) -> FastAPI:
     app_settings = settings or FrontendApiSettings.from_env()
+    # H3 deployment guard: refuse to construct an unauthenticated app on
+    # a non-loopback host unless the operator opted out (signals upstream
+    # auth proxy). See FrontendApiSettings.assert_safe_to_serve.
+    app_settings.assert_safe_to_serve()
     app = FastAPI(
         title="Project ULT Frontend API",
         version=__version__,
@@ -45,6 +49,3 @@ def create_app(settings: FrontendApiSettings | None = None) -> FastAPI:
     app.include_router(graph_router)
     app.include_router(operations_router)
     return app
-
-
-app = create_app()

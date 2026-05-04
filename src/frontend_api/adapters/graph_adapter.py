@@ -347,6 +347,7 @@ class GraphReadAdapter:
             path,
             source_unavailable_code="PROJECT_ULT_EX3_GRAPH_SIGNAL_SOURCE_UNAVAILABLE",
             schema_invalid_code="PROJECT_ULT_EX3_GRAPH_SIGNAL_SCHEMA_INVALID",
+            safe_details=self._ex3_signal_error_details(path),
         )
         raw_items = self._ex3_signal_items(
             raw,
@@ -569,8 +570,12 @@ class GraphReadAdapter:
                         "actual_type": type(ref).__name__,
                     },
                 )
-            if len(ref) <= _MAX_EX3_SIGNAL_STRING_LENGTH:
-                refs.append(ref.strip())
+            safe_ref = ref.strip()
+            if (
+                len(safe_ref) <= _MAX_EX3_SIGNAL_STRING_LENGTH
+                and not self._local_absolute_path_like(safe_ref)
+            ):
+                refs.append(safe_ref)
         return refs
 
     def _sanitize_ex3_properties(
@@ -596,7 +601,10 @@ class GraphReadAdapter:
         if isinstance(value, float):
             return value if isfinite(value) else _DROP_EX3_SIGNAL_VALUE
         if isinstance(value, str):
-            if len(value) > _MAX_EX3_SIGNAL_STRING_LENGTH:
+            if (
+                len(value) > _MAX_EX3_SIGNAL_STRING_LENGTH
+                or self._local_absolute_path_like(value)
+            ):
                 return _DROP_EX3_SIGNAL_VALUE
             return value
         if isinstance(value, Mapping):
@@ -638,12 +646,25 @@ class GraphReadAdapter:
             if marker != "log"
         )
 
+    def _local_absolute_path_like(self, value: str) -> bool:
+        stripped = value.strip()
+        lowered = stripped.lower()
+        return (
+            stripped.startswith("/")
+            or stripped.startswith("\\\\")
+            or stripped.startswith("~/")
+            or stripped.startswith("~\\")
+            or lowered.startswith("file:")
+            or re.match(r"^[A-Za-z]:[\\/]", stripped) is not None
+        )
+
     def _load_json_value(
         self,
         path: Path,
         *,
         source_unavailable_code: str,
         schema_invalid_code: str,
+        safe_details: dict[str, Any] | None = None,
     ) -> Any:
         try:
             return json.loads(path.read_text(encoding="utf-8"))
@@ -652,14 +673,20 @@ class GraphReadAdapter:
                 schema_invalid_code,
                 "Invalid JSON artifact",
                 status_code=500,
-                details={"path": str(path), "error": str(exc)},
+                details={
+                    **(safe_details or {}),
+                    "error": str(exc),
+                },
             ) from exc
         except OSError as exc:
             raise ProjectUltApiError(
                 source_unavailable_code,
                 "Cannot read graph artifact",
                 status_code=503,
-                details={"path": str(path), "error": str(exc)},
+                details={
+                    **(safe_details or {}),
+                    "error_type": type(exc).__name__,
+                },
             ) from exc
 
     def _load_mapping(self, path: Path) -> Mapping[str, Any]:
@@ -811,7 +838,7 @@ class GraphReadAdapter:
             "PROJECT_ULT_EX3_GRAPH_SIGNAL_SCHEMA_INVALID",
             message,
             status_code=500,
-            details={"path": str(path), **(details or {})},
+            details=self._ex3_signal_error_details(path, details),
         )
 
     def _artifact_source(self, kind: str, path: Path) -> SourceArtifact:
@@ -832,3 +859,13 @@ class GraphReadAdapter:
 
     def _ex3_signal_artifact_key(self, cycle_id: str) -> str:
         return "/".join((*_EX3_GRAPH_SIGNAL_ARTIFACT_ROOT, f"{cycle_id}.json"))
+
+    def _ex3_signal_error_details(
+        self,
+        path: Path,
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "artifact": "/".join((*_EX3_GRAPH_SIGNAL_ARTIFACT_ROOT, path.name)),
+            **(details or {}),
+        }

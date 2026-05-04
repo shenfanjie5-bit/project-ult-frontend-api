@@ -97,6 +97,141 @@ def test_ex3_signal_route_reads_sanitized_artifact(tmp_path: Path) -> None:
     ]
 
 
+def test_ex3_signal_schema_errors_do_not_leak_artifact_path(
+    tmp_path: Path,
+) -> None:
+    _write_json(
+        _ex3_graph_signal_artifact_root(tmp_path) / "CYCLE_20260416.json",
+        {"cycle_id": "CYCLE_20260416", "signals": "bad"},
+    )
+    client = _client(tmp_path)
+
+    response = client.get(
+        "/api/project-ult/graph/ex3-signals/CYCLE_20260416",
+        headers={"x-request-id": "req_bad_ex3_schema"},
+    )
+
+    assert response.status_code == 500
+    error = response.json()["error"]
+    assert error["code"] == "PROJECT_ULT_EX3_GRAPH_SIGNAL_SCHEMA_INVALID"
+    assert error["request_id"] == "req_bad_ex3_schema"
+    assert error["details"]["artifact"] == (
+        "orchestrator/artifacts/frontend-api/ex3-graph-signals/"
+        "CYCLE_20260416.json"
+    )
+    assert "path" not in error["details"]
+    assert str(tmp_path) not in response.text
+
+
+def test_ex3_signal_source_errors_do_not_leak_artifact_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    artifact_path = _ex3_graph_signal_artifact_root(tmp_path) / "CYCLE_20260416.json"
+    _write_json(artifact_path, {"cycle_id": "CYCLE_20260416", "signals": []})
+    original_read_text = Path.read_text
+
+    def raise_source_error(self: Path, *args, **kwargs) -> str:
+        if self == artifact_path:
+            raise OSError(f"permission denied: {artifact_path}")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", raise_source_error)
+    client = _client(tmp_path)
+
+    response = client.get(
+        "/api/project-ult/graph/ex3-signals/CYCLE_20260416",
+        headers={"x-request-id": "req_bad_ex3_source"},
+    )
+
+    assert response.status_code == 503
+    error = response.json()["error"]
+    assert error["code"] == "PROJECT_ULT_EX3_GRAPH_SIGNAL_SOURCE_UNAVAILABLE"
+    assert error["request_id"] == "req_bad_ex3_source"
+    assert error["details"] == {
+        "artifact": (
+            "orchestrator/artifacts/frontend-api/ex3-graph-signals/"
+            "CYCLE_20260416.json"
+        ),
+        "error_type": "OSError",
+    }
+    assert str(tmp_path) not in response.text
+
+
+def test_ex3_signal_route_drops_local_absolute_paths_from_public_fields(
+    tmp_path: Path,
+) -> None:
+    _write_json(
+        _ex3_graph_signal_artifact_root(tmp_path) / "CYCLE_20260416.json",
+        {
+            "cycle_id": "CYCLE_20260416",
+            "signals": [
+                {
+                    "delta_id": "delta-ex3-bridge",
+                    "delta_type": "edge_add",
+                    "source_node": "ENT_STOCK_600519.SH",
+                    "target_node": "ENT_STOCK_000001.SZ",
+                    "relation_type": "supplier_of",
+                    "properties": {
+                        "normal_id": "evidence-ex3-bridge",
+                        "docs_url": "https://example.test/evidence/ex3",
+                        "artifact_location": "/var/tmp/ex3.txt",
+                        "cache_location": "/private/var/tmp/ex3.json",
+                        "file_uri": "file:///private/var/tmp/ex3.json",
+                        "nested": {
+                            "keep_id": "ENT_STOCK_600519.SH",
+                            "local_path": "/Users/example/project/ex3.json",
+                        },
+                        "safe_list": [
+                            "safe-ref",
+                            "/var/tmp/list-entry.json",
+                            "https://example.test/evidence/list-entry",
+                        ],
+                    },
+                    "evidence_refs": [
+                        "evidence-ex3-bridge",
+                        "/var/tmp/evidence.json",
+                        "/private/var/tmp/evidence.json",
+                        "https://example.test/evidence/bridge",
+                    ],
+                    "cycle_id": "CYCLE_20260416",
+                    "candidate_id": 40,
+                    "selection_ref": "cycle_candidate_selection:CYCLE_20260416",
+                }
+            ],
+        },
+    )
+    client = _client(tmp_path)
+
+    response = client.get("/api/project-ult/graph/ex3-signals/CYCLE_20260416")
+
+    assert response.status_code == 200
+    signal = response.json()[0]
+    assert signal["properties"] == {
+        "normal_id": "evidence-ex3-bridge",
+        "docs_url": "https://example.test/evidence/ex3",
+        "nested": {"keep_id": "ENT_STOCK_600519.SH"},
+        "safe_list": [
+            "safe-ref",
+            "https://example.test/evidence/list-entry",
+        ],
+    }
+    assert signal["evidence_refs"] == [
+        "evidence-ex3-bridge",
+        "https://example.test/evidence/bridge",
+    ]
+    for leaked_value in (
+        "/var/tmp/ex3.txt",
+        "/private/var/tmp/ex3.json",
+        "file:///private/var/tmp/ex3.json",
+        "/Users/example/project/ex3.json",
+        "/var/tmp/list-entry.json",
+        "/var/tmp/evidence.json",
+        "/private/var/tmp/evidence.json",
+    ):
+        assert leaked_value not in response.text
+
+
 def test_ex3_signal_route_returns_404_without_path_leak_for_missing_artifact(
     tmp_path: Path,
 ) -> None:

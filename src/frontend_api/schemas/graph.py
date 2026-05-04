@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from frontend_api.schemas.common import JsonDict, SourceArtifact
 
@@ -70,6 +70,21 @@ class GraphImpactItem(BaseModel):
     channels: list[str] = Field(default_factory=list)
     drivers: list[str] = Field(default_factory=list)
     metadata: JsonDict = Field(default_factory=dict)
+
+
+class Ex3GraphSignal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cycle_id: str
+    candidate_id: int
+    delta_id: str
+    delta_type: str
+    selection_ref: str
+    source_node: str
+    target_node: str
+    relation_type: str
+    properties: JsonDict = Field(default_factory=dict)
+    evidence_refs: list[str] = Field(default_factory=list)
 
 
 class GraphSubgraphResponse(BaseModel):

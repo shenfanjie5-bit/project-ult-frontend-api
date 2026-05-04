@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 import json
+from math import isfinite
 from pathlib import Path
 import re
 from typing import Any, TypeVar
@@ -13,6 +14,7 @@ from pydantic import BaseModel, ValidationError
 from frontend_api.errors import ProjectUltApiError
 from frontend_api.schemas.common import SourceArtifact
 from frontend_api.schemas.graph import (
+    Ex3GraphSignal,
     GraphEdge,
     GraphImpactItem,
     GraphImpactQuery,
@@ -28,8 +30,67 @@ from frontend_api.schemas.graph import (
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 _GRAPH_ARTIFACT_ROOT = ("graph-engine", "artifacts", "frontend-api")
+_EX3_GRAPH_SIGNAL_ARTIFACT_ROOT = (
+    "orchestrator",
+    "artifacts",
+    "frontend-api",
+    "ex3-graph-signals",
+)
 _SAFE_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _CHANNEL_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
+_EX3_SIGNAL_KEYS = frozenset(
+    {
+        "cycle_id",
+        "candidate_id",
+        "delta_id",
+        "delta_type",
+        "selection_ref",
+        "source_node",
+        "target_node",
+        "relation_type",
+        "properties",
+        "evidence_refs",
+    }
+)
+_EX3_SIGNAL_COLLECTION_KEYS = (
+    "signals",
+    "items",
+    "ex3_graph_signals",
+    "same_cycle_ex3_graph_signals",
+)
+_UNSAFE_EX3_PROPERTY_KEYS = frozenset(
+    {
+        "chunk",
+        "ingest_seq",
+        "light_rag_artifact",
+        "metadata",
+        "payload_type",
+        "raw_text",
+        "rejection_reason",
+        "submitted_at",
+        "submitted_by",
+        "validation_status",
+    }
+)
+_UNSAFE_EX3_PROPERTY_KEY_MARKERS = (
+    "blob",
+    "chunk",
+    "light_rag",
+    "lightrag",
+    "log",
+    "metadata",
+    "private",
+    "provider",
+    "queue",
+    "raw",
+    "secret",
+    "source",
+    "traceback",
+)
+_MAX_EX3_SIGNAL_STRING_LENGTH = 2048
+_MAX_EX3_SIGNAL_COLLECTION_ITEMS = 50
+_MAX_EX3_SIGNAL_DEPTH = 4
+_DROP_EX3_SIGNAL_VALUE = object()
 
 
 class GraphReadAdapter:
@@ -38,6 +99,9 @@ class GraphReadAdapter:
     def __init__(self, *, project_root: Path) -> None:
         self.project_root = Path(project_root).expanduser().resolve()
         self.artifact_root = self.project_root.joinpath(*_GRAPH_ARTIFACT_ROOT)
+        self.ex3_signal_artifact_root = self.project_root.joinpath(
+            *_EX3_GRAPH_SIGNAL_ARTIFACT_ROOT
+        )
 
     def get_subgraph(
         self,
@@ -268,6 +332,37 @@ class GraphReadAdapter:
             snapshot_id=snapshot_id,
         )
 
+    def get_ex3_signals(self, *, cycle_id: str) -> list[Ex3GraphSignal]:
+        validated_cycle_id = self._validate_artifact_cycle_id(cycle_id)
+        path = self.ex3_signal_artifact_root / f"{validated_cycle_id}.json"
+        if not path.exists():
+            raise ProjectUltApiError(
+                "PROJECT_ULT_EX3_GRAPH_SIGNAL_NOT_FOUND",
+                "Ex-3 graph signal artifact not found",
+                status_code=404,
+                details={"artifact": self._ex3_signal_artifact_key(validated_cycle_id)},
+            )
+
+        raw = self._load_json_value(
+            path,
+            source_unavailable_code="PROJECT_ULT_EX3_GRAPH_SIGNAL_SOURCE_UNAVAILABLE",
+            schema_invalid_code="PROJECT_ULT_EX3_GRAPH_SIGNAL_SCHEMA_INVALID",
+        )
+        raw_items = self._ex3_signal_items(
+            raw,
+            cycle_id=validated_cycle_id,
+            path=path,
+        )
+        return [
+            self._sanitize_ex3_signal(
+                self._require_mapping(item, path=path, key="signals", index=index),
+                cycle_id=validated_cycle_id,
+                path=path,
+                index=index,
+            )
+            for index, item in enumerate(raw_items)
+        ]
+
     def _subgraph_for_seed(
         self,
         nodes: list[GraphNode],
@@ -313,6 +408,259 @@ class GraphReadAdapter:
             if edge.source_node_id in nodes_by_id and edge.target_node_id in nodes_by_id
         ]
         return selected_nodes, selected_edges
+
+    def _ex3_signal_items(
+        self,
+        raw: Any,
+        *,
+        cycle_id: str,
+        path: Path,
+    ) -> Sequence[Any]:
+        if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+            return raw
+        if not isinstance(raw, Mapping):
+            self._raise_ex3_schema_error(
+                "Ex-3 graph signal artifact root must be an object or list",
+                path=path,
+                details={"actual_type": type(raw).__name__},
+            )
+
+        artifact_cycle_id = raw.get("cycle_id")
+        if artifact_cycle_id is not None and artifact_cycle_id != cycle_id:
+            self._raise_ex3_schema_error(
+                "Ex-3 graph signal artifact cycle_id does not match request",
+                path=path,
+                details={"cycle_id": artifact_cycle_id, "requested_cycle_id": cycle_id},
+            )
+
+        for key in _EX3_SIGNAL_COLLECTION_KEYS:
+            value = raw.get(key)
+            if value is None:
+                continue
+            if not isinstance(value, Sequence) or isinstance(
+                value, (str, bytes, bytearray)
+            ):
+                self._raise_ex3_schema_error(
+                    f"Ex-3 graph signal artifact {key} must be a list",
+                    path=path,
+                    details={"key": key, "actual_type": type(value).__name__},
+                )
+            return value
+
+        if _EX3_SIGNAL_KEYS.intersection(raw.keys()):
+            return (raw,)
+
+        self._raise_ex3_schema_error(
+            "Ex-3 graph signal artifact must contain a signal list",
+            path=path,
+            details={"expected_keys": list(_EX3_SIGNAL_COLLECTION_KEYS)},
+        )
+
+    def _sanitize_ex3_signal(
+        self,
+        raw: Mapping[str, Any],
+        *,
+        cycle_id: str,
+        path: Path,
+        index: int,
+    ) -> Ex3GraphSignal:
+        raw_cycle_id = raw.get("cycle_id", cycle_id)
+        if raw_cycle_id != cycle_id:
+            self._raise_ex3_schema_error(
+                "Ex-3 graph signal cycle_id does not match request",
+                path=path,
+                details={"index": index, "cycle_id": raw_cycle_id},
+            )
+
+        raw_properties = raw.get("properties", {})
+        if raw_properties is None:
+            raw_properties = {}
+        if not isinstance(raw_properties, Mapping):
+            self._raise_ex3_schema_error(
+                "Ex-3 graph signal properties must be an object",
+                path=path,
+                details={
+                    "index": index,
+                    "actual_type": type(raw_properties).__name__,
+                },
+            )
+
+        payload = {
+            "cycle_id": cycle_id,
+            "candidate_id": self._ex3_candidate_id(raw.get("candidate_id"), path, index),
+            "delta_id": self._required_ex3_text(raw, "delta_id", path, index),
+            "delta_type": self._required_ex3_text(raw, "delta_type", path, index),
+            "selection_ref": self._required_ex3_text(
+                raw,
+                "selection_ref",
+                path,
+                index,
+            ),
+            "source_node": self._required_ex3_text(raw, "source_node", path, index),
+            "target_node": self._required_ex3_text(raw, "target_node", path, index),
+            "relation_type": self._required_ex3_text(raw, "relation_type", path, index),
+            "properties": self._sanitize_ex3_properties(raw_properties),
+            "evidence_refs": self._ex3_evidence_refs(raw, path, index),
+        }
+        return self._validate_model(
+            Ex3GraphSignal,
+            payload,
+            path=path,
+            key="signals",
+            index=index,
+        )
+
+    def _required_ex3_text(
+        self,
+        raw: Mapping[str, Any],
+        key: str,
+        path: Path,
+        index: int,
+    ) -> str:
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        self._raise_ex3_schema_error(
+            f"Ex-3 graph signal {key} must be a non-empty string",
+            path=path,
+            details={"index": index, "key": key, "actual_type": type(value).__name__},
+        )
+
+    def _ex3_candidate_id(self, value: Any, path: Path, index: int) -> int:
+        if isinstance(value, bool):
+            pass
+        elif isinstance(value, int):
+            return value
+        elif isinstance(value, str) and value.isdecimal():
+            return int(value)
+        self._raise_ex3_schema_error(
+            "Ex-3 graph signal candidate_id must be an integer",
+            path=path,
+            details={"index": index, "actual_type": type(value).__name__},
+        )
+
+    def _ex3_evidence_refs(
+        self,
+        raw: Mapping[str, Any],
+        path: Path,
+        index: int,
+    ) -> list[str]:
+        value = raw.get("evidence_refs", raw.get("evidence", []))
+        if value is None:
+            return []
+        if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+            self._raise_ex3_schema_error(
+                "Ex-3 graph signal evidence_refs must be a list",
+                path=path,
+                details={"index": index, "actual_type": type(value).__name__},
+            )
+
+        refs: list[str] = []
+        for ref_index, ref in enumerate(value):
+            if ref_index >= _MAX_EX3_SIGNAL_COLLECTION_ITEMS:
+                break
+            if not isinstance(ref, str) or not ref.strip():
+                self._raise_ex3_schema_error(
+                    "Ex-3 graph signal evidence_refs items must be non-empty strings",
+                    path=path,
+                    details={
+                        "index": index,
+                        "ref_index": ref_index,
+                        "actual_type": type(ref).__name__,
+                    },
+                )
+            if len(ref) <= _MAX_EX3_SIGNAL_STRING_LENGTH:
+                refs.append(ref.strip())
+        return refs
+
+    def _sanitize_ex3_properties(
+        self,
+        properties: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        sanitized: dict[str, Any] = {}
+        for key, value in properties.items():
+            if self._unsafe_ex3_property_key(key):
+                continue
+            safe_value = self._safe_ex3_value(value, depth=0)
+            if safe_value is not _DROP_EX3_SIGNAL_VALUE:
+                sanitized[str(key)] = safe_value
+        return sanitized
+
+    def _safe_ex3_value(self, value: Any, *, depth: int) -> Any:
+        if depth > _MAX_EX3_SIGNAL_DEPTH:
+            return _DROP_EX3_SIGNAL_VALUE
+        if value is None or isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return value if isfinite(value) else _DROP_EX3_SIGNAL_VALUE
+        if isinstance(value, str):
+            if len(value) > _MAX_EX3_SIGNAL_STRING_LENGTH:
+                return _DROP_EX3_SIGNAL_VALUE
+            return value
+        if isinstance(value, Mapping):
+            safe_mapping: dict[str, Any] = {}
+            for index, (key, item) in enumerate(value.items()):
+                if index >= _MAX_EX3_SIGNAL_COLLECTION_ITEMS:
+                    break
+                if self._unsafe_ex3_property_key(key):
+                    continue
+                safe_item = self._safe_ex3_value(item, depth=depth + 1)
+                if safe_item is not _DROP_EX3_SIGNAL_VALUE:
+                    safe_mapping[str(key)] = safe_item
+            return safe_mapping
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            safe_items: list[Any] = []
+            for index, item in enumerate(value):
+                if index >= _MAX_EX3_SIGNAL_COLLECTION_ITEMS:
+                    break
+                safe_item = self._safe_ex3_value(item, depth=depth + 1)
+                if safe_item is not _DROP_EX3_SIGNAL_VALUE:
+                    safe_items.append(safe_item)
+            return safe_items
+        return _DROP_EX3_SIGNAL_VALUE
+
+    def _unsafe_ex3_property_key(self, key: object) -> bool:
+        if not isinstance(key, str):
+            return True
+        normalized = key.strip().lower()
+        if not normalized or normalized.startswith("_"):
+            return True
+        if normalized in _UNSAFE_EX3_PROPERTY_KEYS:
+            return True
+        key_tokens = [token for token in re.split(r"[^a-z0-9]+", normalized) if token]
+        if "log" in key_tokens:
+            return True
+        return any(
+            marker in normalized
+            for marker in _UNSAFE_EX3_PROPERTY_KEY_MARKERS
+            if marker != "log"
+        )
+
+    def _load_json_value(
+        self,
+        path: Path,
+        *,
+        source_unavailable_code: str,
+        schema_invalid_code: str,
+    ) -> Any:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ProjectUltApiError(
+                schema_invalid_code,
+                "Invalid JSON artifact",
+                status_code=500,
+                details={"path": str(path), "error": str(exc)},
+            ) from exc
+        except OSError as exc:
+            raise ProjectUltApiError(
+                source_unavailable_code,
+                "Cannot read graph artifact",
+                status_code=503,
+                details={"path": str(path), "error": str(exc)},
+            ) from exc
 
     def _load_mapping(self, path: Path) -> Mapping[str, Any]:
         try:
@@ -410,6 +758,22 @@ class GraphReadAdapter:
             return None
         return self._validate_token(str(value), field_name)
 
+    def _validate_artifact_cycle_id(self, value: str) -> str:
+        if (
+            value
+            and len(value) <= 128
+            and _SAFE_TOKEN_PATTERN.fullmatch(value)
+            and ".." not in value
+            and not value.startswith(".")
+        ):
+            return value
+        raise ProjectUltApiError(
+            "PROJECT_ULT_GRAPH_QUERY_INVALID",
+            "cycle_id must be a non-empty graph-safe artifact identifier",
+            status_code=400,
+            details={"cycle_id": value},
+        )
+
     def _validate_channel(self, channel: str | None) -> str | None:
         if channel in (None, ""):
             return None
@@ -436,6 +800,20 @@ class GraphReadAdapter:
             details={"path": str(path), **(details or {})},
         )
 
+    def _raise_ex3_schema_error(
+        self,
+        message: str,
+        *,
+        path: Path,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        raise ProjectUltApiError(
+            "PROJECT_ULT_EX3_GRAPH_SIGNAL_SCHEMA_INVALID",
+            message,
+            status_code=500,
+            details={"path": str(path), **(details or {})},
+        )
+
     def _artifact_source(self, kind: str, path: Path) -> SourceArtifact:
         return SourceArtifact(kind=kind, path=str(path), exists=True)
 
@@ -451,3 +829,6 @@ class GraphReadAdapter:
             exists=False,
             message=message,
         )
+
+    def _ex3_signal_artifact_key(self, cycle_id: str) -> str:
+        return "/".join((*_EX3_GRAPH_SIGNAL_ARTIFACT_ROOT, f"{cycle_id}.json"))

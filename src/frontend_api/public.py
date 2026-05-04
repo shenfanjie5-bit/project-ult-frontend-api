@@ -42,6 +42,7 @@ _READONLY_GET_ROUTES = {
     "/api/project-ult/graph/subgraph",
     "/api/project-ult/graph/paths",
     "/api/project-ult/graph/impact",
+    "/api/project-ult/graph/ex3-signals/{cycle_id}",
     "/api/project-ult/reasoner/providers",
     "/api/project-ult/reasoner/results",
     "/api/project-ult/audit/{cycle_id}",

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, Request
 
 from frontend_api.adapters.graph_adapter import GraphReadAdapter
 from frontend_api.schemas.graph import (
+    Ex3GraphSignal,
     GraphImpactResponse,
     GraphPathsResponse,
     GraphSubgraphResponse,
@@ -53,3 +54,11 @@ def get_impact(
     cycle_id: str | None = None,
 ) -> GraphImpactResponse:
     return _adapter(request).get_impact(entity_id=entity_id, cycle_id=cycle_id)
+
+
+@router.get("/ex3-signals/{cycle_id}", response_model=list[Ex3GraphSignal])
+def get_ex3_signals(
+    request: Request,
+    cycle_id: str,
+) -> list[Ex3GraphSignal]:
+    return _adapter(request).get_ex3_signals(cycle_id=cycle_id)

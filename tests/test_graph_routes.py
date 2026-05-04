@@ -123,6 +123,45 @@ def test_ex3_signal_schema_errors_do_not_leak_artifact_path(
     assert str(tmp_path) not in response.text
 
 
+def test_ex3_signal_item_schema_errors_do_not_leak_artifact_path(
+    tmp_path: Path,
+) -> None:
+    artifact_path = _ex3_graph_signal_artifact_root(tmp_path) / "CYCLE_20260416.json"
+    _write_json(
+        artifact_path,
+        {"cycle_id": "CYCLE_20260416", "signals": ["not-object"]},
+    )
+    client = _client(tmp_path)
+
+    response = client.get(
+        "/api/project-ult/graph/ex3-signals/CYCLE_20260416",
+        headers={"x-request-id": "req_bad_ex3_signal_item"},
+    )
+
+    assert response.status_code == 500
+    error = response.json()["error"]
+    assert error["code"] == "PROJECT_ULT_EX3_GRAPH_SIGNAL_SCHEMA_INVALID"
+    assert error["request_id"] == "req_bad_ex3_signal_item"
+    assert error["details"] == {
+        "artifact": (
+            "orchestrator/artifacts/frontend-api/ex3-graph-signals/"
+            "CYCLE_20260416.json"
+        ),
+        "key": "signals",
+        "index": 0,
+        "actual_type": "str",
+    }
+    assert "path" not in error["details"]
+    for leaked_token in (
+        "/Users/",
+        "/private/",
+        "/var/",
+        str(artifact_path),
+        str(tmp_path),
+    ):
+        assert leaked_token not in response.text
+
+
 def test_ex3_signal_source_errors_do_not_leak_artifact_path(
     tmp_path: Path,
     monkeypatch,

@@ -356,7 +356,7 @@ class GraphReadAdapter:
         )
         return [
             self._sanitize_ex3_signal(
-                self._require_mapping(item, path=path, key="signals", index=index),
+                self._require_ex3_signal_mapping(item, path=path, index=index),
                 cycle_id=validated_cycle_id,
                 path=path,
                 index=index,
@@ -503,13 +503,7 @@ class GraphReadAdapter:
             "properties": self._sanitize_ex3_properties(raw_properties),
             "evidence_refs": self._ex3_evidence_refs(raw, path, index),
         }
-        return self._validate_model(
-            Ex3GraphSignal,
-            payload,
-            path=path,
-            key="signals",
-            index=index,
-        )
+        return self._validate_ex3_signal(payload, path=path, index=index)
 
     def _required_ex3_text(
         self,
@@ -577,6 +571,45 @@ class GraphReadAdapter:
             ):
                 refs.append(safe_ref)
         return refs
+
+    def _require_ex3_signal_mapping(
+        self,
+        value: Any,
+        *,
+        path: Path,
+        index: int,
+    ) -> dict[str, Any]:
+        if not isinstance(value, Mapping):
+            self._raise_ex3_schema_error(
+                "Ex-3 graph signal item must be an object",
+                path=path,
+                details={
+                    "key": "signals",
+                    "index": index,
+                    "actual_type": type(value).__name__,
+                },
+            )
+        return dict(value)
+
+    def _validate_ex3_signal(
+        self,
+        payload: dict[str, Any],
+        *,
+        path: Path,
+        index: int,
+    ) -> Ex3GraphSignal:
+        try:
+            return Ex3GraphSignal.model_validate(payload)
+        except ValidationError as exc:
+            self._raise_ex3_schema_error(
+                "Invalid Ex-3 graph signal item: schema validation failed",
+                path=path,
+                details={
+                    "key": "signals",
+                    "index": index,
+                    "errors": exc.errors(include_url=False),
+                },
+            )
 
     def _sanitize_ex3_properties(
         self,

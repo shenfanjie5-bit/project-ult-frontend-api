@@ -58,12 +58,19 @@ def test_cycle_formal_routes_read_artifacts(tmp_path: Path) -> None:
     )
     _write_json(
         root / "formal" / "recommendation_snapshot" / "latest.json",
-        {
-            "object_type": "recommendation_snapshot",
-            "cycle_id": "CYCLE_20260424",
-            "payload": {"recommendations": [{"entity_id": "ENT_STOCK_000001.SZ"}]},
-        },
-    )
+            {
+                "object_type": "recommendation_snapshot",
+                "cycle_id": "CYCLE_20260424",
+                "payload": {
+                    "recommendations": [
+                        {
+                            "entity_id": "ENT_STOCK_000001.SZ",
+                            "entity_role": "decision_target",
+                        }
+                    ]
+                },
+            },
+        )
     _write_json(
         root / "manifests" / "latest.json",
         {
@@ -186,6 +193,83 @@ def test_formal_routes_strip_raw_source_provider_fields(tmp_path: Path) -> None:
     }
 
 
+def test_recommendation_routes_keep_only_mvp20_decision_targets(
+    tmp_path: Path,
+) -> None:
+    root = _artifact_root(tmp_path)
+    recommendations = [
+        {
+            "rank": index + 1,
+            "entity_id": f"ENT_STOCK_TARGET_{index:02d}.SZ",
+            "entity_role": "decision_target",
+        }
+        for index in range(22)
+    ]
+    recommendations.insert(
+        1,
+        {
+            "rank": 99,
+            "entity_id": "SECTOR_LIQUOR",
+            "entity_role": "context_only",
+        },
+    )
+    recommendations.append(
+        {
+            "rank": 100,
+            "entity_id": "ENT_CONTEXT_FROM_METADATA",
+            "metadata": {"mvp20_entity_role": "context_only"},
+        }
+    )
+    recommendations.extend(
+        [
+            {
+                "rank": 101,
+                "entity_id": "ENT_CONTEXT_WITH_UNKNOWN_ROLE",
+                "entity_role": "related_entity",
+            },
+            {
+                "rank": 102,
+                "entity_id": "ENT_CONTEXT_WITHOUT_ROLE",
+            },
+        ]
+    )
+    _write_json(
+        root / "formal" / "recommendation_snapshot" / "latest.json",
+        {
+            "object_type": "recommendation_snapshot",
+            "cycle_id": "CYCLE_20260424",
+            "payload": {"recommendations": recommendations},
+        },
+    )
+    client = _client(tmp_path)
+
+    formal = client.get("/api/project-ult/formal/recommendation_snapshot")
+    legacy = client.get("/api/recommendations/latest")
+
+    assert formal.status_code == 200
+    formal_recommendations = formal.json()["payload"]["recommendations"]
+    assert len(formal_recommendations) == 20
+    assert all(
+        item.get("entity_role") == "decision_target"
+        for item in formal_recommendations
+    )
+    assert {
+        item["entity_id"] for item in formal_recommendations
+    }.isdisjoint(
+        {
+            "SECTOR_LIQUOR",
+            "ENT_CONTEXT_FROM_METADATA",
+            "ENT_CONTEXT_WITH_UNKNOWN_ROLE",
+            "ENT_CONTEXT_WITHOUT_ROLE",
+        }
+    )
+
+    assert legacy.status_code == 200
+    legacy_recommendations = legacy.json()["recommendations"]
+    assert legacy_recommendations == formal_recommendations
+    assert legacy_recommendations[-1]["entity_id"] == "ENT_STOCK_TARGET_19.SZ"
+
+
 def test_project_artifacts_return_api2b_success_state() -> None:
     client = _client(PROJECT_ROOT)
 
@@ -233,7 +317,14 @@ def test_project_artifacts_return_api2b_success_state() -> None:
     assert formal_pool.status_code == 200
     assert formal_pool.json()["payload"]["core_pool"][0]["stock_id"] == "600519.SH"
     assert formal_recommendations.status_code == 200
-    assert formal_recommendations.json()["payload"]["recommendations"][0]["rank"] == 1
+    project_recommendations = formal_recommendations.json()["payload"][
+        "recommendations"
+    ]
+    assert len(project_recommendations) <= 20
+    assert all(
+        recommendation.get("entity_role") == "decision_target"
+        for recommendation in project_recommendations
+    )
 
     assert legacy_world_state.status_code == 200
     assert legacy_world_state.json()["regime"] == "range_bound"
@@ -243,7 +334,8 @@ def test_project_artifacts_return_api2b_success_state() -> None:
     assert legacy_pool.json()["core_pool"][0]["stock_id"] == "600519.SH"
     assert "object_type" not in legacy_pool.json()
     assert legacy_recommendations.status_code == 200
-    assert legacy_recommendations.json()["recommendations"][0]["rank"] == 1
+    legacy_project_recommendations = legacy_recommendations.json()["recommendations"]
+    assert legacy_project_recommendations == project_recommendations
     assert "payload" not in legacy_recommendations.json()
 
 

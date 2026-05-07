@@ -42,12 +42,20 @@ def test_graph_routes_read_artifacts(tmp_path: Path) -> None:
     assert subgraph_payload["total_edges"] == 2
     assert subgraph_payload["truncated"] is False
     assert subgraph_payload["nodes"][0]["node_id"] == "ENT_STOCK_600519.SH"
+    assert subgraph_payload["nodes"][0]["entity_role"] == "decision_target"
+    assert {
+        node["node_id"]: node["entity_role"] for node in subgraph_payload["nodes"]
+    }["SECTOR_LIQUOR"] == "context_only"
     assert {
         edge["edge_id"] for edge in subgraph_payload["edges"]
     } == {
         "EDGE_600519_SECTOR_LIQUOR",
         "EDGE_600519_300750_MACRO_EVENT",
     }
+    assert {
+        edge["edge_id"]: edge["target_entity_role"]
+        for edge in subgraph_payload["edges"]
+    }["EDGE_600519_SECTOR_LIQUOR"] == "context_only"
 
     assert paths.status_code == 200
     paths_payload = paths.json()
@@ -55,6 +63,7 @@ def test_graph_routes_read_artifacts(tmp_path: Path) -> None:
     assert paths_payload["query"]["channel"] == "event"
     assert paths_payload["total"] == 1
     assert paths_payload["paths"][0]["target"] == "ENT_STOCK_300750.SZ"
+    assert paths_payload["paths"][0]["target_role"] == "decision_target"
 
     assert impact.status_code == 200
     impact_payload = impact.json()
@@ -64,9 +73,29 @@ def test_graph_routes_read_artifacts(tmp_path: Path) -> None:
         "cycle_id": None,
     }
     assert impact_payload["snapshot_id"] == "api3c_impact_001"
-    assert impact_payload["total"] == 2
+    assert impact_payload["total"] == 3
     assert impact_payload["items"] == impact_payload["impacted_entities"]
     assert impact_payload["items"][1]["entity_id"] == "ENT_STOCK_300750.SZ"
+    assert impact_payload["items"][1]["entity_role"] == "decision_target"
+    assert impact_payload["items"][2]["entity_id"] == "SECTOR_LIQUOR"
+    assert impact_payload["items"][2]["entity_role"] == "context_only"
+
+
+def test_graph_routes_enforce_mvp20_depth_cap(tmp_path: Path) -> None:
+    _write_graph_artifacts(tmp_path)
+    client = _client(tmp_path)
+
+    subgraph = client.get(
+        "/api/project-ult/graph/subgraph"
+        "?seed=ENT_STOCK_600519.SH&depth=3"
+    )
+    paths = client.get(
+        "/api/project-ult/graph/paths"
+        "?seed=ENT_STOCK_600519.SH&depth=3"
+    )
+
+    assert subgraph.status_code == 422
+    assert paths.status_code == 422
 
 
 def test_ex3_signal_route_reads_sanitized_artifact(tmp_path: Path) -> None:
@@ -382,17 +411,29 @@ def test_project_graph_artifacts_return_api3c_success_state() -> None:
     )
     assert subgraph_payload["total_nodes"] >= 3
     assert subgraph_payload["total_edges"] >= 2
+    assert any(
+        node.get("entity_role") == "context_only"
+        for node in subgraph_payload["nodes"]
+    )
 
     assert paths.status_code == 200
     paths_payload = paths.json()
     assert paths_payload["source_status"] == "available"
     assert paths_payload["paths"][0]["seed"] == "ENT_STOCK_600519.SH"
+    assert {
+        path["target"]: path.get("target_role")
+        for path in paths_payload["paths"]
+    }["SECTOR_LIQUOR"] == "context_only"
 
     assert impact.status_code == 200
     impact_payload = impact.json()
     assert impact_payload["source_status"] == "available"
     assert impact_payload["snapshot_id"] == "api3c_impact_001"
     assert impact_payload["items"][1]["display_name"] == "CATL"
+    assert any(
+        item.get("entity_role") == "context_only"
+        for item in impact_payload["items"]
+    )
 
 
 def test_graph_routes_return_unavailable_without_sources(tmp_path: Path) -> None:
@@ -495,6 +536,7 @@ def _write_graph_artifacts(project_root: Path) -> None:
                     "node_id": "ENT_STOCK_600519.SH",
                     "label": "Entity",
                     "entity_id": "ENT_STOCK_600519.SH",
+                    "entity_role": "decision_target",
                     "display_name": "Kweichow Moutai",
                     "properties": {"industry": "Liquor"},
                 },
@@ -502,12 +544,14 @@ def _write_graph_artifacts(project_root: Path) -> None:
                     "node_id": "ENT_STOCK_300750.SZ",
                     "label": "Entity",
                     "entity_id": "ENT_STOCK_300750.SZ",
+                    "entity_role": "decision_target",
                     "display_name": "CATL",
                     "properties": {"industry": "Battery"},
                 },
                 {
                     "node_id": "SECTOR_LIQUOR",
                     "label": "Sector",
+                    "entity_role": "context_only",
                     "display_name": "Liquor",
                     "properties": {},
                 },
@@ -519,6 +563,8 @@ def _write_graph_artifacts(project_root: Path) -> None:
                     "target_node_id": "SECTOR_LIQUOR",
                     "relationship_type": "SECTOR_MEMBERSHIP",
                     "channel": "fundamental",
+                    "source_entity_role": "decision_target",
+                    "target_entity_role": "context_only",
                     "weight": 1.0,
                     "properties": {},
                 },
@@ -528,6 +574,8 @@ def _write_graph_artifacts(project_root: Path) -> None:
                     "target_node_id": "ENT_STOCK_300750.SZ",
                     "relationship_type": "EVENT_IMPACT",
                     "channel": "event",
+                    "source_entity_role": "decision_target",
+                    "target_entity_role": "decision_target",
                     "weight": 0.35,
                     "properties": {},
                 },
@@ -542,6 +590,7 @@ def _write_graph_artifacts(project_root: Path) -> None:
                     "path_id": "PATH_600519_TO_300750_EVENT",
                     "seed": "ENT_STOCK_600519.SH",
                     "target": "ENT_STOCK_300750.SZ",
+                    "target_role": "decision_target",
                     "nodes": ["ENT_STOCK_600519.SH", "ENT_STOCK_300750.SZ"],
                     "edges": ["EDGE_600519_300750_MACRO_EVENT"],
                     "depth": 1,
@@ -553,6 +602,7 @@ def _write_graph_artifacts(project_root: Path) -> None:
                     "path_id": "PATH_600519_TO_SECTOR_LIQUOR",
                     "seed": "ENT_STOCK_600519.SH",
                     "target": "SECTOR_LIQUOR",
+                    "target_role": "context_only",
                     "nodes": ["ENT_STOCK_600519.SH", "SECTOR_LIQUOR"],
                     "edges": ["EDGE_600519_SECTOR_LIQUOR"],
                     "depth": 1,
@@ -572,6 +622,7 @@ def _write_graph_artifacts(project_root: Path) -> None:
             "items": [
                 {
                     "entity_id": "ENT_STOCK_600519.SH",
+                    "entity_role": "decision_target",
                     "display_name": "Kweichow Moutai",
                     "impact_score": 1.0,
                     "channels": ["fundamental"],
@@ -579,10 +630,19 @@ def _write_graph_artifacts(project_root: Path) -> None:
                 },
                 {
                     "entity_id": "ENT_STOCK_300750.SZ",
+                    "entity_role": "decision_target",
                     "display_name": "CATL",
                     "impact_score": 0.35,
                     "channels": ["event"],
                     "drivers": ["EDGE_600519_300750_MACRO_EVENT"],
+                },
+                {
+                    "entity_id": "SECTOR_LIQUOR",
+                    "entity_role": "context_only",
+                    "display_name": "Liquor",
+                    "impact_score": 0.12,
+                    "channels": ["fundamental"],
+                    "drivers": ["EDGE_600519_SECTOR_LIQUOR"],
                 },
             ],
         },

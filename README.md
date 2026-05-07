@@ -60,6 +60,13 @@ Graph routes read stable frontend-api artifacts owned by graph-engine:
 - `graph-engine/artifacts/frontend-api/paths.json`
 - `graph-engine/artifacts/frontend-api/impact.json`
 
+MVP20 read-side behavior is intentionally narrow: graph/impact artifacts may
+surface `decision_target` and `context_only` related entities, while
+`recommendation_snapshot` public outputs keep only the decision target
+recommendations and cap that list at 20 items. This is response
+sanitization only; frontend-api does not create graph relationships or write
+formal snapshots.
+
 Evidence routes read stable frontend-api artifacts owned by reasoner-runtime,
 audit-eval, and orchestrator:
 

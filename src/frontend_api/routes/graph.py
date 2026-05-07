@@ -14,6 +14,7 @@ from frontend_api.schemas.graph import (
 from frontend_api.settings import FrontendApiSettings
 
 router = APIRouter(prefix="/api/project-ult/graph", tags=["graph"])
+_MVP20_GRAPH_DEPTH_LIMIT = 2
 
 
 def _adapter(request: Request) -> GraphReadAdapter:
@@ -25,7 +26,7 @@ def _adapter(request: Request) -> GraphReadAdapter:
 def get_subgraph(
     request: Request,
     seed: str,
-    depth: int = Query(default=1, ge=0, le=4),
+    depth: int = Query(default=1, ge=0, le=_MVP20_GRAPH_DEPTH_LIMIT),
     limit: int = Query(default=50, ge=1, le=500),
 ) -> GraphSubgraphResponse:
     return _adapter(request).get_subgraph(seed=seed, depth=depth, limit=limit)
@@ -35,7 +36,11 @@ def get_subgraph(
 def get_paths(
     request: Request,
     seed: str,
-    depth: int = Query(default=2, ge=0, le=4),
+    depth: int = Query(
+        default=_MVP20_GRAPH_DEPTH_LIMIT,
+        ge=0,
+        le=_MVP20_GRAPH_DEPTH_LIMIT,
+    ),
     limit: int = Query(default=20, ge=1, le=200),
     channel: str | None = None,
 ) -> GraphPathsResponse:

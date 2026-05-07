@@ -10,6 +10,7 @@ from frontend_api.schemas.common import JsonDict, SourceArtifact
 
 
 GraphSourceStatus = Literal["available", "unavailable"]
+Mvp20EntityRole = Literal["decision_target", "context_only"]
 
 
 class GraphSubgraphQuery(BaseModel):
@@ -34,6 +35,7 @@ class GraphNode(BaseModel):
     node_id: str
     label: str | None = None
     entity_id: str | None = None
+    entity_role: Mvp20EntityRole | None = None
     display_name: str | None = None
     properties: JsonDict = Field(default_factory=dict)
     metadata: JsonDict = Field(default_factory=dict)
@@ -45,6 +47,8 @@ class GraphEdge(BaseModel):
     target_node_id: str
     relationship_type: str
     channel: str | None = None
+    source_entity_role: Mvp20EntityRole | None = None
+    target_entity_role: Mvp20EntityRole | None = None
     weight: float | None = None
     properties: JsonDict = Field(default_factory=dict)
     metadata: JsonDict = Field(default_factory=dict)
@@ -54,6 +58,7 @@ class GraphPath(BaseModel):
     path_id: str
     seed: str
     target: str
+    target_role: Mvp20EntityRole | None = None
     nodes: list[str]
     edges: list[str]
     depth: int
@@ -65,6 +70,7 @@ class GraphPath(BaseModel):
 
 class GraphImpactItem(BaseModel):
     entity_id: str
+    entity_role: Mvp20EntityRole | None = None
     display_name: str | None = None
     impact_score: float | None = None
     channels: list[str] = Field(default_factory=list)

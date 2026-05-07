@@ -38,6 +38,15 @@ _FORMAL_PAYLOAD_FORBIDDEN_KEYS = frozenset(
     }
 )
 _LEGACY_PAYLOAD_FORBIDDEN_KEYS = _FORMAL_PAYLOAD_FORBIDDEN_KEYS
+_MVP20_DECISION_TARGET_LIMIT = 20
+_MVP20_DECISION_TARGET_ROLE = "decision_target"
+_MVP20_CONTEXT_ONLY_ROLE = "context_only"
+_MVP20_ROLE_KEYS = (
+    "entity_role",
+    "target_role",
+    "mvp20_role",
+    "mvp20_entity_role",
+)
 
 
 def _adapter(request: Request) -> DataPlatformReadAdapter:
@@ -102,11 +111,11 @@ def get_legacy_recommendations(request: Request) -> Any:
 
 def _legacy_payload(request: Request, object_type: str) -> Any:
     formal_object = _adapter(request).get_formal_object(object_type)
-    return _sanitize_legacy_payload(formal_object.payload)
+    return _sanitize_legacy_payload(formal_object.payload, object_type=object_type)
 
 
-def _sanitize_legacy_payload(payload: Any) -> Any:
-    return _sanitize_public_formal_payload(payload)
+def _sanitize_legacy_payload(payload: Any, *, object_type: str | None = None) -> Any:
+    return _sanitize_object_payload(payload, object_type=object_type)
 
 
 def _sanitize_formal_object_response(
@@ -114,10 +123,20 @@ def _sanitize_formal_object_response(
 ) -> FormalObjectResponse:
     return formal_object.model_copy(
         update={
-            "payload": _sanitize_public_formal_payload(formal_object.payload),
+            "payload": _sanitize_object_payload(
+                formal_object.payload,
+                object_type=formal_object.object_type,
+            ),
             "metadata": _sanitize_public_formal_payload(formal_object.metadata),
         }
     )
+
+
+def _sanitize_object_payload(payload: Any, *, object_type: str | None) -> Any:
+    sanitized = _sanitize_public_formal_payload(payload)
+    if object_type == "recommendation_snapshot":
+        return _sanitize_mvp20_recommendation_payload(sanitized)
+    return sanitized
 
 
 def _sanitize_public_formal_payload(payload: Any) -> Any:
@@ -130,6 +149,56 @@ def _sanitize_public_formal_payload(payload: Any) -> Any:
     if isinstance(payload, list):
         return [_sanitize_public_formal_payload(item) for item in payload]
     return payload
+
+
+def _sanitize_mvp20_recommendation_payload(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    recommendations = payload.get("recommendations")
+    if not isinstance(recommendations, list):
+        return payload
+
+    filtered = [
+        recommendation
+        for recommendation in recommendations
+        if _is_mvp20_decision_target_item(recommendation)
+    ][:_MVP20_DECISION_TARGET_LIMIT]
+    return {**payload, "recommendations": filtered}
+
+
+def _is_mvp20_decision_target_item(item: Any) -> bool:
+    return _mvp20_item_role(item) == _MVP20_DECISION_TARGET_ROLE
+
+
+def _is_mvp20_context_only_item(item: Any) -> bool:
+    return _mvp20_item_role(item) == _MVP20_CONTEXT_ONLY_ROLE
+
+
+def _mvp20_item_role(item: Any) -> str | None:
+    if not isinstance(item, dict):
+        return None
+    for key in _MVP20_ROLE_KEYS:
+        role = _normalized_mvp20_role(item.get(key))
+        if role is not None:
+            return role
+    for nested_key in ("metadata", "properties"):
+        nested = item.get(nested_key)
+        if not isinstance(nested, dict):
+            continue
+        for key in _MVP20_ROLE_KEYS:
+            role = _normalized_mvp20_role(nested.get(key))
+            if role is not None:
+                return role
+    return None
+
+
+def _normalized_mvp20_role(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    if normalized in {_MVP20_DECISION_TARGET_ROLE, _MVP20_CONTEXT_ONLY_ROLE}:
+        return normalized
+    return None
 
 
 def _is_formal_payload_forbidden_key(key: object) -> bool:
